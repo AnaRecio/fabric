@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "DataAgent",
+    "displayName": "andes-finance-agent"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "1e258eca-2446-85e4-4868-d61278eb62c9"
+  }
+}
