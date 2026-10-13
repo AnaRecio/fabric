@@ -1,0 +1,10 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataAgent/definition/fewShots/1.0.0/schema.json",
+  "fewShots": [
+    {
+      "id": "21114267-1092-46d7-a877-ecffcb89a269",
+      "question": "",
+      "query": "-- Enter a SQL query that could answer the question using your data"
+    }
+  ]
+}
