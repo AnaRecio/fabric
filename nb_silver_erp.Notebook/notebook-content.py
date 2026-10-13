@@ -32,9 +32,14 @@ max_quarantine_ratio = 0.05   # si más del 5 % de las filas falla, no se promue
 late_adjustment_days = 10     # días después del cierre de un período para considerarlo ajuste tardío
 
 # %% CELDA 2 — Imports y funciones auxiliares
+# Requiere andes_lib instalado en el Environment del notebook (wheel de este repo).
 import uuid
 from delta.tables import DeltaTable
-from pyspark.sql import functions as F, Window
+from pyspark.sql import functions as F
+
+from andes_lib.audit import add_row_hash
+from andes_lib.dedupe import keep_latest
+from andes_lib.finance.checks import flag_late_adjustments, validate_gl
 
 run_id = str(uuid.uuid4())
 
@@ -76,7 +81,7 @@ print(f"Watermark anterior: {last_watermark} | filas nuevas en Bronze: {src.coun
 # %% CELDA 5 — Tipado, hash y deduplicación
 hash_cols = ["entity", "period", "account_id", "cost_center", "debit", "credit", "currency"]
 
-typed = (
+typed = add_row_hash(
     src.select(
         "entry_id",
         "journal_id",
@@ -91,55 +96,19 @@ typed = (
         F.to_timestamp("source_updated_at").alias("source_updated_at"),
         "ingested_at",
         "batch_id",
-    )
-    .withColumn(
-        "row_hash",
-        F.sha2(F.concat_ws("||", *[F.col(c).cast("string") for c in hash_cols]), 256),
-    )
+    ),
+    hash_cols,
 )
 
 # Si un asiento llegó más de una vez, quedarse con la versión más reciente
-w = Window.partitionBy("entry_id").orderBy(F.col("source_updated_at").desc())
-gl = typed.withColumn("_rn", F.row_number().over(w)).filter("_rn = 1").drop("_rn").cache()
+gl = keep_latest(typed, "entry_id", "source_updated_at").cache()
 
 # %% CELDA 6 — Validaciones fila por fila (el motivo queda escrito en la columna reason)
-valid_accounts = spark.table("silver_dim_account").select("account_id").withColumn("_acct_ok", F.lit(True))
-
-unbalanced = (
-    gl.groupBy("journal_id")
-    .agg((F.sum("debit") - F.sum("credit")).alias("_diff"))
-    .filter(F.abs("_diff") > 0.01)
-    .select("journal_id")
-    .withColumn("_unbalanced", F.lit(True))
-)
-
-checked = (
-    gl.join(valid_accounts, "account_id", "left")
-    .join(unbalanced, "journal_id", "left")
-    .withColumn(
-        "reason",
-        F.concat_ws(
-            "; ",
-            F.when(
-                F.col("entry_id").isNull() | F.col("account_id").isNull() | F.col("period").isNull(),
-                F.lit("llaves_nulas"),
-            ),
-            F.when(F.col("_acct_ok").isNull(), F.lit("cuenta_inexistente")),
-            F.when(F.col("_unbalanced"), F.lit("asiento_descuadrado")),
-        ),
-    )
-)
+valid_accounts = spark.table("silver_dim_account").select("account_id")
 
 # Ajuste tardío: el período ya cerró y el registro se modificó días después del cierre.
 # No es un error contable, así que no va a cuarentena: se marca para que sea visible.
-period_end = F.last_day(F.to_date(F.concat(F.col("period"), F.lit("-01"))))
-checked = checked.withColumn(
-    "is_late_adjustment",
-    F.col("source_updated_at") > F.date_add(period_end, late_adjustment_days),
-)
-
-good = checked.filter(F.col("reason") == "").drop("_acct_ok", "_unbalanced", "reason")
-bad = checked.filter(F.col("reason") != "").drop("_acct_ok", "_unbalanced")
+good, bad = validate_gl(flag_late_adjustments(gl, late_adjustment_days), valid_accounts)
 
 total_rows, bad_rows = gl.count(), bad.count()
 print(f"Filas: {total_rows} | válidas: {total_rows - bad_rows} | cuarentena: {bad_rows}")
