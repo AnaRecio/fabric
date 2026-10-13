@@ -16,6 +16,10 @@
 # META           "id": "14d9ad92-a745-4799-9f33-72d8c035bd14"
 # META         }
 # META       ]
+# META     },
+# META     "environment": {
+# META       "environmentId": "78bd8b69-b751-4798-9306-7e3cdc838d17",
+# META       "workspaceId": "d16ba20d-fbd2-4baf-908f-9803249dc4ad"
 # META     }
 # META   }
 # META }
@@ -40,7 +44,15 @@ from pyspark.sql import functions as F
 from andes_lib.audit import add_row_hash
 from andes_lib.dedupe import keep_latest
 from andes_lib.finance.checks import flag_late_adjustments, validate_gl
+import uuid
+from delta.tables import DeltaTable
+from pyspark.sql import functions as F, Window
 
+from andes_lib.audit import add_row_hash
+from andes_lib.dedupe import keep_latest
+from andes_lib.finance.checks import validate_gl, flag_late_adjustments
+
+run_id = str(uuid.uuid4())
 run_id = str(uuid.uuid4())
 
 
@@ -192,6 +204,18 @@ display(spark.sql("""
 
 # CELL ********************
 
+import andes_lib, inspect
+print(andes_lib.__file__)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
 df = spark.sql("SELECT * FROM andes_lakehouse.dbo.silver_dim_cost_center LIMIT 1000")
 display(df)
 
@@ -199,5 +223,17 @@ display(df)
 
 # META {
 # META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# MAGIC %%sql 
+# MAGIC SELECT * FROM silver_dim_account LIMIT 10
+
+# METADATA ********************
+
+# META {
+# META   "language": "sparksql",
 # META   "language_group": "synapse_pyspark"
 # META }
